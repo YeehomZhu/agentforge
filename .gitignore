@@ -1,0 +1,27 @@
+# Logs / artifacts
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Venv
+.venv/
+venv/
+
+# Indexes (built locally)
+indexes/
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

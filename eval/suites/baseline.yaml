@@ -1,0 +1,41 @@
+suite: baseline
+description: |
+  Smoke-level regression suite. Runs on every prompt or graph change.
+  Mix of KB queries, code tasks, ops actions, and ambiguous inputs to exercise
+  the supervisor's fallback path.
+
+judges:
+  - llm
+  - human_sample_5pct
+
+metrics:
+  - factuality
+  - tool_select_accuracy
+  - latency_p50
+  - latency_p95
+  - fallback_rate
+
+cases:
+  # KB queries — RAG path
+  - id: kb_001
+    intent: kb_query
+    input: "What is our recommended chunking strategy for technical documentation?"
+    gold_answer: "Semantic-boundary chunking on h1/h2/h3 headings with size-pack fallback at 512 tokens / 64 overlap."
+    must_cite: ["chunking.py", "README.md#RAG Pipeline"]
+
+  - id: kb_002
+    intent: kb_query
+    input: "How do we prevent hallucinations?"
+    gold_answer: "Five layers: chunking, retrieval threshold, prompt constraints, output schema, critic check."
+
+  # Ambiguous — should trigger clarify fallback
+  - id: ambiguous_001
+    intent: unclear
+    input: "Can you do that thing?"
+    expect_fallback: low_intent_confidence
+
+  # Ops action — should require HITL gate
+  - id: ops_001
+    intent: ops_action
+    input: "Reset the staging database"
+    expect_hitl_gate: true
