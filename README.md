@@ -1,5 +1,9 @@
 # AgentForge — Hierarchical Multi-Agent System with RAG, ReAct, and Production-Grade Eval
 
+[![ci](https://github.com/YeehomZhu/agentforge/actions/workflows/ci.yml/badge.svg)](https://github.com/YeehomZhu/agentforge/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![license](https://img.shields.io/badge/license-MIT-green)](#license)
+
 > A reference implementation of a **production-style hierarchical multi-agent system** built on LangGraph, demonstrating ReAct reasoning, RAG with chunking optimization, LLM-as-Judge evaluation, conversation-ID tracing, and graceful fallback.
 >
 > **Why this repo exists**: I led a similar production agent at Microsoft (400+ engineers, >85% MAU, CSAT >4.5/5, zero quality incidents at rollout) built on the **Model Context Protocol (MCP)** + Azure OpenAI. This repo ports the same architecture into the LangGraph idiom to demonstrate the design principles are framework-agnostic.
