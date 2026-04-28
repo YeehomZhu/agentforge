@@ -22,16 +22,20 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
+      - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install pytest pytest-asyncio ruff mypy opentelemetry-api opentelemetry-sdk pydantic pyyaml
 
       - name: Lint (ruff)
         run: ruff check src tests
 
       - name: Type check (mypy)
+        env:
+          PYTHONPATH: src
         run: mypy src/agentforge --ignore-missing-imports || true
 
       - name: Run tests (pytest)
+        env:
+          PYTHONPATH: src
         run: pytest -v
