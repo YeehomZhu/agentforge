@@ -4,9 +4,9 @@
 [![python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![license](https://img.shields.io/badge/license-MIT-green)](#license)
 
-> A reference implementation of a **production-style hierarchical multi-agent system** built on LangGraph, demonstrating ReAct reasoning, RAG with chunking optimization, LLM-as-Judge evaluation, conversation-ID tracing, and graceful fallback.
+> A reference implementation of a **production-style hierarchical multi-agent system** built on LangGraph, demonstrating ReAct reasoning, RAG with chunking optimization, LLM-as-Judge evaluation, conversation-ID tracing, OAuth-based tool calling, LLM-native metrics (tokens/sec · cost/request · p95 latency), and graceful fallback.
 >
-> **Why this repo exists**: I led a similar production agent at Microsoft (400+ engineers, >85% MAU, CSAT >4.5/5, zero quality incidents at rollout) built on the **Model Context Protocol (MCP)** + Azure OpenAI. This repo ports the same architecture into the LangGraph idiom to demonstrate the design principles are framework-agnostic.
+> **Why this repo exists**: I led a similar production agent at Microsoft (200+ engineers, >85% MAU, CSAT >4.5/5, zero quality incidents at rollout) built on the **Model Context Protocol (MCP)** + Azure OpenAI, and contributed to **Copilot for Microsoft Support Portals (CMSP)** (70%+ case deflection in high-volume Intune scenarios). This repo ports the same architecture into the LangGraph idiom to demonstrate the design principles are framework-agnostic — and the same patterns map to Vertex AI Agent Builder and Google ADK.
 
 ---
 
@@ -20,6 +20,8 @@
 - [RAG Pipeline](#rag-pipeline)
 - [Evaluation Framework](#evaluation-framework)
 - [Observability](#observability)
+- [LLM-Native Metrics](#llm-native-metrics)
+- [OAuth Tool Calling](#oauth-tool-calling)
 - [Production Hardening Checklist](#production-hardening-checklist)
 - [Lessons from a Real Production Agent](#lessons-from-a-real-production-agent)
 
@@ -138,6 +140,8 @@ agentforge/
 │   ├── cli.py                      # entry point
 │   ├── config.py                   # env + thresholds
 │   ├── tracing.py                  # OTel + conversation_id propagation
+│   ├── metrics.py                  # tokens/sec, cost-per-request, latency
+│   ├── oauth_tool.py               # per-user OAuth token cache + refresh
 │   │
 │   ├── graph/
 │   │   ├── supervisor.py           # router + hierarchical delegate
@@ -276,6 +280,68 @@ When a user reports a bad answer:
 
 ---
 
+## LLM-Native Metrics
+
+Production agents are judged on three numbers customers actually feel:
+
+- **tokens/sec** — perceived speed during streaming
+- **cost-per-request** — unit economics for the business case
+- **p95 latency** — tail experience that drives abandonment
+
+[`metrics.py`](src/agentforge/metrics.py) wraps every LLM call in a context manager that captures all three plus token usage, attaches them as attributes on the active OTel span (so they ride the same `conversation_id` trace), and emits a JSON summary you can pipe to Cloud Logging / any sink.
+
+```python
+from agentforge.metrics import measure_llm_call
+
+with measure_llm_call(model="gemini-2.0-flash") as m:
+    response = client.generate_content(prompt)
+    m.set_usage(
+        prompt_tokens=response.usage_metadata.prompt_token_count,
+        completion_tokens=response.usage_metadata.candidates_token_count,
+    )
+print(m.summary())
+# {
+#   "model": "gemini-2.0-flash",
+#   "conversation_id": "...",
+#   "prompt_tokens": 1240,
+#   "completion_tokens": 380,
+#   "latency_ms": 1812.4,
+#   "cost_usd": 0.000276,
+#   "tokens_per_sec": 209.7
+# }
+```
+
+The pricing table is provider-agnostic — OpenAI and Gemini models live side-by-side, so swapping providers doesn't break cost reporting.
+
+---
+
+## OAuth Tool Calling
+
+When an agent calls a third-party API on behalf of a user (Microsoft Graph, Google Workspace, Salesforce, etc.) it must use *that* user's token — never a service-account token, never another user's. [`oauth_tool.py`](src/agentforge/oauth_tool.py) sketches the production pattern:
+
+1. **Per-user token cache** — `TokenStore` is a Protocol; the in-memory implementation is for tests, production swaps in a vault-backed store (KMS / Secret Manager / Key Vault).
+2. **Auto-refresh with safety margin** — Tokens are refreshed `REFRESH_SAFETY_MARGIN_SEC` seconds before nominal expiry to absorb clock skew.
+3. **Forced re-auth** — Invalid or revoked refresh tokens raise `ReAuthRequired`, which the agent surfaces back to the user instead of silently failing.
+4. **Scope minimization** — `get_access_token(user_id, required_scopes)` *checks* the cached token covers the requested scopes; never silently broadens.
+5. **Fully traced** — Every token operation is wrapped in an OTel span tagged with the `conversation_id`, so a refresh that takes 800ms shows up in the same trace as the agent step that needed it.
+
+```python
+client = OAuthToolClient(store=vault_store)
+token = client.get_access_token(
+    user_id="alice@example.com",
+    required_scopes=("calendar.readonly",),
+)
+# httpx.get("https://...", headers={"Authorization": f"Bearer {token}"})
+```
+
+**Production hardening NOT in this reference** (intentionally — the patterns are what matter):
+- Vault-backed token store with envelope encryption
+- Token endpoint calls signed from a backend, never from agent code in untrusted env
+- `client_secret` rotation + short-lived tokens
+- Per-token-use audit log (who, when, scope, tool, conversation)
+
+---
+
 ## Production Hardening Checklist
 
 Drawn from the seven gates I used to take the source production agent live:
@@ -308,6 +374,6 @@ MIT — use freely. If this design helps you ship something to production, send 
 
 ## About the Author
 
-Leon Zhu — 8+ years architecting AI and cloud platforms for Fortune 500 customers. Product Owner of the **AI Wiki Agent at Microsoft** (Azure OpenAI + RAG + MCP, 400+ engineers, >85% MAU, CSAT >4.5/5, zero quality incidents at rollout). Currently exploring frontier multi-agent infrastructure on Vertex AI, Gemini, and Google ADK.
+Leon Zhu — 8+ years architecting AI and cloud platforms for Fortune 500 customers. Product Owner of the **AI Wiki Agent at Microsoft** (Azure OpenAI + RAG + MCP, 200+ engineers, >85% MAU, CSAT >4.5/5, zero quality incidents at rollout) and contributor to **Copilot for Microsoft Support Portals (CMSP)** (70%+ case deflection in high-volume Intune scenarios). Currently exploring frontier multi-agent infrastructure on Vertex AI, Gemini, and Google ADK.
 
 🔗 LinkedIn: Leon Zhu · 📧 leonzhuinau@gmail.com
